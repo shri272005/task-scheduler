@@ -42,11 +42,20 @@
                         </div>
                         
                         {% if task.status != 'completed' %}
-                        <form method="POST" action="{{ url_for('complete_task', task_id=task.id) }}" class="d-inline">
-                            <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Mark task as completed?')">
-                                <i class="fas fa-check"></i> Complete
-                            </button>
-                        </form>
+                        <div class="btn-group" role="group">
+                            <form method="POST" action="{{ url_for('complete_task', task_id=task.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Mark task as completed?')">
+                                    <i class="fas fa-check"></i> Complete
+                                </button>
+                            </form>
+                            {% if task.deadline %}
+                            <form method="POST" action="{{ url_for('test_notification', task_id=task.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-warning btn-sm" title="Send test notification for this task">
+                                    <i class="fas fa-bell"></i> Test Alert
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
                         {% endif %}
                     </div>
                 </div>

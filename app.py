@@ -160,20 +160,47 @@ class TaskScheduler:
             return tasks
     
     def schedule_notification(self, task_id, deadline_dt):
-        """Schedule notification for task deadline"""
-        # Schedule notification 1 hour before deadline
-        notification_time = deadline_dt - timedelta(hours=1)
+        """Schedule notifications for task deadline at multiple intervals"""
+        now = datetime.now()
         
-        if notification_time > datetime.now():
-            scheduler.add_job(
-                func=self.send_notification,
-                trigger=DateTrigger(run_date=notification_time),
-                args=[task_id],
-                id=f'notification_{task_id}',
-                replace_existing=True
-            )
+        # Schedule multiple notifications: 24 hours, 1 hour, and immediate for testing
+        notification_intervals = [
+            (timedelta(hours=24), "24 hours"),
+            (timedelta(hours=1), "1 hour"), 
+            (timedelta(minutes=5), "5 minutes")  # For immediate testing
+        ]
+        
+        for interval, interval_name in notification_intervals:
+            notification_time = deadline_dt - interval
+            
+            if notification_time > now:
+                scheduler.add_job(
+                    func=self.send_notification,
+                    trigger=DateTrigger(run_date=notification_time),
+                    args=[task_id, interval_name],
+                    id=f'notification_{task_id}_{interval_name.replace(" ", "_")}',
+                    replace_existing=True
+                )
     
-    def send_notification(self, task_id):
+    def send_immediate_test_notification(self, task_id):
+        """Send immediate test notification for demonstration"""
+        conn = sqlite3.connect('scheduler.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT title, deadline FROM tasks WHERE id = ?', (task_id,))
+        task = cursor.fetchone()
+        
+        if task:
+            message = f"🔔 TEST ALERT: Task '{task[0]}' needs your attention! (Deadline: {task[1]})"
+            cursor.execute(
+                'INSERT INTO notifications (task_id, message, read) VALUES (?, ?, ?)',
+                (task_id, message, 0)
+            )
+        
+        conn.commit()
+        conn.close()
+    
+    def send_notification(self, task_id, interval_name="1 hour"):
         """Send notification for upcoming deadline"""
         conn = sqlite3.connect('scheduler.db')
         cursor = conn.cursor()
@@ -182,10 +209,10 @@ class TaskScheduler:
         task = cursor.fetchone()
         
         if task:
-            message = f"Reminder: Task '{task[0]}' is due soon (deadline: {task[1]})"
+            message = f"⏰ {interval_name.upper()} REMINDER: Task '{task[0]}' deadline approaching! Due: {task[1]}"
             cursor.execute(
-                'INSERT INTO notifications (task_id, message) VALUES (?, ?)',
-                (task_id, message)
+                'INSERT INTO notifications (task_id, message, read) VALUES (?, ?, ?)',
+                (task_id, message, 0)
             )
         
         conn.commit()
@@ -465,6 +492,28 @@ def get_unread_count():
     count = cursor.fetchone()[0]
     conn.close()
     return jsonify({'unread_count': count})
+
+@app.route('/test_notification/<int:task_id>', methods=['POST'])
+def test_notification(task_id):
+    """Create immediate test notification for demonstration"""
+    task_scheduler.send_immediate_test_notification(task_id)
+    flash('Test notification sent!', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/trigger_all_notifications', methods=['POST'])
+def trigger_all_notifications():
+    """Trigger test notifications for all pending tasks with deadlines"""
+    conn = sqlite3.connect('scheduler.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM tasks WHERE status = "pending" AND deadline IS NOT NULL')
+    task_ids = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    
+    for task_id in task_ids:
+        task_scheduler.send_immediate_test_notification(task_id)
+    
+    flash(f'Test notifications sent for {len(task_ids)} tasks!', 'success')
+    return redirect(url_for('notifications'))
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
