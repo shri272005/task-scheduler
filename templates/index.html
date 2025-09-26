@@ -32,7 +32,13 @@
                             {% if task.deadline %}
                             <i class="fas fa-clock"></i> Deadline: {{ task.deadline[:16] }}<br>
                             {% endif %}
-                            <i class="fas fa-hourglass-half"></i> Duration: {{ task.estimated_duration }} min
+                            <i class="fas fa-hourglass-half"></i> Duration: {{ task.estimated_duration }} min<br>
+                            {% if task.dependencies %}
+                            <i class="fas fa-link"></i> Dependencies: 
+                            {% for dep in task.dependencies %}
+                                <span class="badge {% if dep.status == 'completed' %}bg-success{% else %}bg-warning{% endif %} me-1">{{ dep.title }}</span>
+                            {% endfor %}
+                            {% endif %}
                         </div>
                         
                         {% if task.status != 'completed' %}

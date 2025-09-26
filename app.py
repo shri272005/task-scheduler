@@ -72,7 +72,7 @@ class TaskScheduler:
         conn.commit()
         conn.close()
     
-    def add_task(self, title, description, priority, deadline, estimated_duration=60):
+    def add_task(self, title, description, priority, deadline, estimated_duration=60, dependencies=None):
         """Add a new task to the database and priority heap"""
         conn = sqlite3.connect('scheduler.db')
         cursor = conn.cursor()
@@ -83,6 +83,15 @@ class TaskScheduler:
         ''', (title, description, priority, deadline, estimated_duration))
         
         task_id = cursor.lastrowid
+        
+        # Add dependencies if provided
+        if dependencies:
+            for dep_task_id in dependencies:
+                cursor.execute('''
+                    INSERT INTO task_dependencies (task_id, depends_on_task_id)
+                    VALUES (?, ?)
+                ''', (task_id, dep_task_id))
+        
         conn.commit()
         conn.close()
         
@@ -206,6 +215,23 @@ class TaskScheduler:
             'priority_counts': priority_counts,
             'daily_completions': daily_completions
         }
+    
+    def get_task_dependencies(self, task_id):
+        """Get list of tasks that this task depends on"""
+        conn = sqlite3.connect('scheduler.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT t.id, t.title, t.status
+            FROM tasks t
+            JOIN task_dependencies td ON t.id = td.depends_on_task_id
+            WHERE td.task_id = ?
+        ''', (task_id,))
+        
+        dependencies = cursor.fetchall()
+        conn.close()
+        
+        return [{'id': dep[0], 'title': dep[1], 'status': dep[2]} for dep in dependencies]
 
 # Initialize task scheduler
 task_scheduler = TaskScheduler()
@@ -227,7 +253,8 @@ def index():
             'status': task[5],
             'created_at': task[6],
             'completed_at': task[7],
-            'estimated_duration': task[8]
+            'estimated_duration': task[8],
+            'dependencies': task_scheduler.get_task_dependencies(task[0])
         }
         task_list.append(task_dict)
     
@@ -242,12 +269,29 @@ def add_task():
         priority = int(request.form['priority'])
         deadline = request.form['deadline']
         estimated_duration = int(request.form.get('estimated_duration', 60))
+        dependencies = request.form.getlist('dependencies')  # Get list of selected dependencies
         
-        task_id = task_scheduler.add_task(title, description, priority, deadline, estimated_duration)
+        # Convert dependency strings to integers
+        dep_ids = [int(dep_id) for dep_id in dependencies if dep_id.isdigit()]
+        
+        task_id = task_scheduler.add_task(title, description, priority, deadline, estimated_duration, dep_ids)
         flash(f'Task "{title}" added successfully!', 'success')
         return redirect(url_for('index'))
     
-    return render_template('add_task.html')
+    # Get available tasks for dependencies selection
+    conn = sqlite3.connect('scheduler.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, title, priority FROM tasks WHERE status != "completed" ORDER BY title')
+    available_tasks = cursor.fetchall()
+    conn.close()
+    
+    # Convert to list of dicts for template
+    task_list = []
+    for task in available_tasks:
+        task_dict = {'id': task[0], 'title': task[1], 'priority': task[2]}
+        task_list.append(task_dict)
+    
+    return render_template('add_task.html', available_tasks=task_list)
 
 @app.route('/complete_task/<int:task_id>', methods=['POST'])
 def complete_task(task_id):
