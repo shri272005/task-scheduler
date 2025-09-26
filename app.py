@@ -163,12 +163,23 @@ class TaskScheduler:
         """Schedule notifications for task deadline at multiple intervals"""
         now = datetime.now()
         
-        # Schedule multiple notifications: 24 hours, 1 hour, and immediate for testing
+        # Schedule multiple notifications: 24 hours, 1 hour, and 5 minutes before deadline
         notification_intervals = [
             (timedelta(hours=24), "24 hours"),
             (timedelta(hours=1), "1 hour"), 
-            (timedelta(minutes=5), "5 minutes")  # For immediate testing
+            (timedelta(minutes=5), "5 minutes")
         ]
+        
+        # For immediate testing: add a notification that triggers in 30 seconds
+        immediate_notification_time = now + timedelta(seconds=30)
+        if immediate_notification_time < deadline_dt:
+            scheduler.add_job(
+                func=self.send_notification,
+                trigger=DateTrigger(run_date=immediate_notification_time),
+                args=[task_id, "IMMEDIATE_TEST"],
+                id=f'immediate_test_{task_id}',
+                replace_existing=True
+            )
         
         for interval, interval_name in notification_intervals:
             notification_time = deadline_dt - interval
