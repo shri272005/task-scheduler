@@ -65,9 +65,16 @@ class TaskScheduler:
                 task_id INTEGER,
                 message TEXT,
                 sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                read INTEGER DEFAULT 0,
                 FOREIGN KEY (task_id) REFERENCES tasks (id)
             )
         ''')
+        
+        # Add 'read' column to existing notifications table if it doesn't exist
+        cursor.execute("PRAGMA table_info(notifications)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'read' not in columns:
+            cursor.execute('ALTER TABLE notifications ADD COLUMN read INTEGER DEFAULT 0')
         
         conn.commit()
         conn.close()
@@ -232,6 +239,40 @@ class TaskScheduler:
         conn.close()
         
         return [{'id': dep[0], 'title': dep[1], 'status': dep[2]} for dep in dependencies]
+    
+    def get_recent_notifications(self, limit=10):
+        """Get recent notifications"""
+        conn = sqlite3.connect('scheduler.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT n.id, n.message, n.sent_at, t.title, t.id as task_id, n.read
+            FROM notifications n
+            LEFT JOIN tasks t ON n.task_id = t.id
+            ORDER BY n.sent_at DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        notifications = cursor.fetchall()
+        conn.close()
+        
+        return [{
+            'id': notif[0],
+            'message': notif[1],
+            'sent_at': notif[2],
+            'task_title': notif[3],
+            'task_id': notif[4],
+            'read': notif[5]
+        } for notif in notifications]
+    
+    def mark_notification_read(self, notification_id):
+        """Mark a notification as read"""
+        conn = sqlite3.connect('scheduler.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('UPDATE notifications SET read = 1 WHERE id = ?', (notification_id,))
+        conn.commit()
+        conn.close()
 
 # Initialize task scheduler
 task_scheduler = TaskScheduler()
@@ -402,6 +443,28 @@ def calendar():
     calendar_json = json.dumps(calendar_fig, cls=plotly.utils.PlotlyJSONEncoder)
     
     return render_template('calendar.html', calendar_chart=calendar_json)
+
+@app.route('/notifications')
+def notifications():
+    """View notifications"""
+    notifications = task_scheduler.get_recent_notifications(limit=20)
+    return render_template('notifications.html', notifications=notifications)
+
+@app.route('/mark_notification_read/<int:notification_id>', methods=['POST'])
+def mark_notification_read(notification_id):
+    """Mark notification as read"""
+    task_scheduler.mark_notification_read(notification_id)
+    return redirect(url_for('notifications'))
+
+@app.route('/get_unread_count')
+def get_unread_count():
+    """Get count of unread notifications for AJAX"""
+    conn = sqlite3.connect('scheduler.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM notifications WHERE read = 0')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return jsonify({'unread_count': count})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
